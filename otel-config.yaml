@@ -1,0 +1,110 @@
+# config.yaml for OpenTelemetry Collector
+
+# 1. EXTENSIONS: Optional components providing capabilities like health checks.
+extensions:
+  # Health Check Extension: Provides an HTTP endpoint for health checks (default: / on port 13133).
+  health_check:
+    endpoint: 0.0.0.0:13133 # Default endpoint
+
+# 2. RECEIVERS: How data gets into the Collector.
+receivers:
+  # OTLP Receiver: Accepts data using the OpenTelemetry Protocol (OTLP).
+  otlp:
+    protocols:
+      # Enable the HTTP receiver on a non-standard port (e.g., 14318)
+      # Your Svelte app's OTel SDK will need to target this new port.
+      http:
+        endpoint: 0.0.0.0:14318
+        cors: # Optional: Configure CORS if needed, defaults are often permissive
+          allowed_origins:
+            - "http://localhost:5173" # Your Svelte app's origin
+      # You could also enable gRPC if needed on a non-standard port (e.g., 14317)
+      # grpc:
+      #   endpoint: 0.0.0.0:14317
+
+# 3. PROCESSORS: How data is processed within the Collector.
+processors:
+  # Memory Limiter: Prevents the Collector from exceeding memory limits. Recommended.
+  memory_limiter:
+    check_interval: 1s       # How often to check memory usage
+    limit_mib: 400           # Max memory in MiB before dropping data
+    spike_limit_mib: 100     # Max additional memory allowed quickly
+
+  # Filter Processor: Drops telemetry based on OTTL conditions.
+  # Used here to drop traces from the health check endpoint.
+  filter:
+    # Optional: How to handle errors during condition evaluation. 'ignore' logs errors but continues.
+    error_mode: ignore
+    # Define conditions for dropping trace data.
+    traces:
+      # Define conditions for dropping entire spans.
+      # If any condition is true, the span is dropped.
+      span:
+        # Drop spans where the 'url.path' attribute exists and equals "/".
+        # This uses OTTL syntax to access the span's attributes map.
+        # Adjust the path if your health_check endpoint path is different.
+        - 'attributes["url.path"] == "/"'
+        # Alternative/older attribute check (uncomment if needed):
+        # - 'attributes["http.target"] == "/"'
+
+  # Batch Processor: Batches telemetry data before exporting. Recommended for performance.
+  batch:
+    send_batch_size: 8192    # Max number of items (spans, metrics, logs) per batch
+    timeout: 1s              # Max time before sending an incomplete batch
+
+# 4. EXPORTERS: Where processed data is sent.
+exporters:
+  # Debug Exporter: Prints received telemetry to the Collector's console output.
+  # Replaces the deprecated 'logging' exporter.
+  debug:
+    verbosity: detailed # Options: basic, normal, detailed
+
+  otlp:
+    endpoint: "signoz-otel-collector:4317"
+    tls:
+      insecure: true
+  # Example: Exporting to Jaeger (if you had a Jaeger instance running)
+  # jaeger:
+  #   endpoint: jaeger-all-in-one:14250 # Default Jaeger gRPC endpoint
+  #   tls:
+  #     insecure: true # Set to false and configure TLS if needed
+
+  # Example: Exporting metrics to Prometheus (via remote write)
+  # prometheusremotewrite:
+  #   endpoint: "http://prometheus:9090/api/v1/write"
+  #   tls:
+  #     insecure: true
+
+# 5. SERVICE: Defines the pipelines connecting receivers, processors, and exporters.
+service:
+  # Enable defined extensions
+  extensions: [health_check]
+
+  # Telemetry section configures Collector's own internal metrics/logs (optional)
+  telemetry:
+    logs:
+      level: info # Collector's internal log level
+
+  # Pipelines define the data flow for each signal type (traces, metrics, logs)
+  pipelines:
+    # Trace Pipeline
+    traces:
+      receivers: [otlp] # Receive traces via OTLP
+      # Add 'filter' processor BEFORE 'batch'
+      processors: [memory_limiter, filter, batch]
+      exporters: [debug,otlp] # Export them using the debug exporter
+
+    # Metrics Pipeline
+    metrics:
+      receivers: [otlp] # Receive metrics via OTLP
+      # Filter processor is configured only for traces, so not needed here
+      processors: [memory_limiter, batch]
+      exporters: [debug,otlp] # Export them using debug
+
+    # Logs Pipeline
+    logs:
+      receivers: [otlp] # Receive logs via OTLP
+      # Filter processor is configured only for traces, so not needed here
+      processors: [memory_limiter, batch]
+      exporters: [debug,otlp] # Export them using debug
+

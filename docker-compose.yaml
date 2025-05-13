@@ -1,0 +1,37 @@
+# docker-compose.yaml
+# Defines the OpenTelemetry Collector service using Docker Compose.
+# Place this file in the same directory as your config.yaml.
+
+version: '3.8' # Specify Docker Compose file version
+
+services:
+  # Define the OpenTelemetry Collector service
+  otel-collector:
+    image: otel/opentelemetry-collector:latest # Use the official Collector image
+    container_name: svelte-otel-collector # Assign a specific container name
+    # Mount the local configuration file into the container
+    # Assumes config.yaml is in the same directory as docker-compose.yaml
+    volumes:
+      - ./otel-config.yaml:/etc/otelcol/config.yaml
+    # Map the necessary ports from the host to the container
+    # Match the ports defined in your config.yaml receiver section
+    ports:
+      - "14318:14318" # OTLP/HTTP receiver port
+      # - "14317:14317" # OTLP/gRPC receiver port (uncomment if used)
+      - "13133:13133" # Health check extension port (default)
+    # Optional: Explicitly specify the command to run with the config file
+    # The base image often defaults to this, but being explicit can be helpful.
+    command: ["--config=/etc/otelcol/config.yaml"]
+    # Optional: Restart policy
+    restart: unless-stopped
+    networks:
+      - signoz-net
+
+# Optional: Define networks if needed for communication with other services
+# networks:
+#   default:
+#     driver: bridge
+
+networks:
+  signoz-net:
+    external: true
